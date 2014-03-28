@@ -1,0 +1,236 @@
+# HashLite.pm and the hashlite command
+
+<!-- pandoc: html-N -->
+<!-- pandoc: toc -->
+
+This is combined documentation for both the command and the perl module.
+
+**Briefly**, hashlite is a simple way to store and retrieve small amounts of
+data from perl or shell.  Think "git config" in some ways, but more powerful
+and flexible.
+
+## why
+
+I needed something that combines SQLite's "serverless, single file", model
+with the ability to use arbitrary data structures.
+
+I will eventually add example uses of this so you can see better when these
+choices make sense.
+
+### alternatives
+
+I don't want to use DBM for vague, unspecified, reasons.  (To be honest, ever
+since I read [How SQLite is tested][sqlt], I've been hooked.  Just reading
+that document restores your faith in humanity, in some -- again -- vague,
+unspecified, way!)
+
+I could have used [Tie::RDBM][tie1], which should be similar, but for some
+reason it disables Storable when using SQLite, so I can't store arbitrary data
+structures.
+
+I believe things like Riak and CouchDB *might* also fit, but I want this to be
+serverless.
+
+[sqlt]: https://www.sqlite.org/testing.html
+[tie1]: http://search.cpan.org/~lds/Tie-DBI-1.02/lib/Tie/RDBM.pm
+
+## APIs
+
+**Notation**: anything starting with a `$` needs to be replaced by something
+suitable, everything else is typed literally.
+
+### creating the database and the table
+
+Just to help you along, typing `hashlite new $db $table` will print the
+command you need to run to create the database (if needed) and the table
+within it.  Just copy-paste that into your shell.
+
+(This is the only command where the database name comes after the verb).
+
+### the shell API
+
+The shell API consists of the `hashlite` command, which internally of course
+uses the perl API to do the real dirty work.
+
+Since HashLite can store arbitrary perl data structures, it's not too easy to
+translate that into a shell interface.  But we try... :-)
+
+The database name is always the first parameter.  **NOTE** that if the given
+database cannot be found, hashlite will also try to find it in
+`$HOME/.config/hashlite`.  In other words, you can put all your hashlite
+databases there and just refer to them by the name if you wish.
+
+**`set`**
+
+:   `hashlite $db set $table $key $value` (**scalar form**) sets key to
+    value in the given table.  This is a plain scalar.  If something
+    previously existed in that key, it will be silently overwritten, even if
+    it was a structure.
+
+    `hashlite $db set $table $key $subkey1 [...] $value` (**hashref form**)
+    sets a part of a data structure.  Please **read carefully**!
+
+    Loosely speaking, it treats all the intermediate values as hash keys, and
+    updates the value to the chains of hashes, creating it if needed.  For
+    example, running `hashlite db1 set tbl1 key1 subkey1 subkey2 val` creates
+    the following (perl) structure as the frozen value for key 'key1':
+
+        {
+          'subkey1' => {
+            'subkey2' => 'val'
+          }
+        }
+
+    As you can see, all but the last component is a hash key, at each
+    successive level.
+
+    What's more, a subsequent `hashlite db1 set tbl1 key1 subkey1 subkey3 val3`
+    makes the value now look like this:
+
+        {
+          'subkey1' => {
+            'subkey2' => 'val',
+            'subkey3' => 'val3'
+          }
+        }
+
+    Use carefully, test well.  The code is a hack.  A beautiful one, but a
+    hack nevertheless.
+
+**`set` in delete mode**
+
+:   A special case of set is used to delete entire keys or subkeys within a
+    key.  Just use an empty string as the value (literally  a `''` in the
+    command line).
+
+    If used in *scalar form* (see above), it deletes the key from the table.
+    If used in *hashref form*, it deletes only that hash key, possibly leaving
+    an empty hash if it was the last member deleted from its parent.
+
+**`get`**
+
+:   `hashlite $db get tables` prints a list of table names in the database,
+    one per line, sorted.
+
+    `hashlite $db get keys $table` prints a list of keys in the table,
+    one per line.
+
+    `hashlite $db get $table $key` prints the value at the key supplied.
+    If the value is a reference, it will be pretty printed using perl's Data
+    Dumper module (`Data::Dumper`).
+
+    `hashlite $db get $table $key $subkey1 [...]` prints the value at the
+    key supplied, dereferencing the subkeys given.  If what remains is a
+    scalar, it will be printed as is.  Otherwise it will be printed as a
+    structure, again using Data Dumper.
+
+    For example, after the 'set' commands shown above, the following 'get'
+    commands get the results shown:
+
+        $ hashlite db1 get tbl1 key1
+        {
+          'subkey1' => {
+            'subkey2' => 'val',
+            'subkey3' => 'val3'
+          }
+        }
+
+        $ hashlite db1 get tbl1 key1 subkey1
+        {
+          'subkey2' => 'val',
+          'subkey3' => 'val3'
+        }
+
+        $ hashlite db1 get tbl1 key1 subkey1 subkey3
+        val3
+
+    Note that in general, only the last style -- setting and getting a single
+    scalar value -- is likely to be of use in a shell program.  The others are
+    mainly for human consumption, (e.g., to quickly check what some program
+    actually stored).
+
+**`get all`**
+
+:   This is a variant of the get that actually dumps all the records in the
+    entire database (from `hashlist $db get all`), or in one table (if you
+    run `hashlist $db get all $table`), using Data Dumper.
+
+    Again, this is somewhat useless for scripting, but when you're desperate
+    you can pipe one of these commands to a pager and grep for stuff!
+
+**`grep`**
+
+:   `hashlite $db grep $table $subkey1 [...] $pattern` looks for keys
+    where the field value found using the subkeys matches the pattern.  For
+    those records, it prints the key and the field value, separated by a tab,
+    one record per line.
+
+### the perl API
+
+You can almost guess the first part of it:
+
+    use lib "/path/to/HashLite.pm";
+    use HashLite;
+
+    my $db = HashLite->new($DB);
+
+`$DB` must of course point to an existing database with HashLite tables
+already created as described in an earlier section.
+
+Here are the other functions.
+
+**`set`**
+
+:   `$db->set($table, $key, $value)`, stores the given value into the
+    given key in the table, creating the key if needed.  If the value is
+    undefined (not just empty or 0), the key is deleted from the table.
+
+    If the value is a ref, it will be frozen and then stored, so that a
+    subsequent get will thaw it out and return the ref to the thawed data
+    structure.
+
+**`get`**
+
+:   `$db->get('tables')` returns a reference to a list of table names in the
+    database.
+
+:   `$db->get('keys', $table)` returns a reference to a list of keys in
+    the table given.  They will be returned in rowid order, which means
+    approximately FIFO (as far as I know).
+
+    You can also supply an optional "key pattern" to limit what keys you will
+    get back.  This pattern will be prefixed and suffixed with `%` signs and
+    used in an SQL SELECT's LIKE clause.
+
+:   `$db->get($table, $key)` returns whatever you stored into the given key in
+    the given table.  If you stored a number or a string, that is what you
+    will get back.  If you stored a reference to a perl data structure, then
+    that's what you'll get back too.  (Internally, this uses the Storable
+    module's freeze and thaw methods to do this).
+
+**`_exists`**
+
+:   `$db->_exists($table, $key)` returns whether the key exists in the
+    table or not.  The actual value returned for success may be a ref, but do
+    not depend on it (it might change).  Just use it in boolean context.
+
+**`_grep`**
+
+:   `$db->_grep($table, $coderef)` returns a hash of keys+values of the
+    rows that satisfy the coderef.
+
+    The coderef is usually an anonymous sub, which you can put right there
+    within the function call.  The sub is called once for each key in the
+    database, with two parameters (the key and the value).  It can take these
+    two parameters and do whatever it needs to do, returning a boolean.  Keys
+    that satisfy the boolean are returned, along with the corresponding
+    values, in a hash.
+
+    Implementation detail: at present, this actually returns a **list** that
+    looks like this: key1, value1, key2, value2, etc.  In perl, you can assign
+    that to a hash, and it will be populated correctly.  However, these keys
+    are in rowid order (i.e., FIFO, as far as I can make out), so if -- for
+    some reason -- you need to preserve the order, then assign it to an array
+    instead of a hash and skip even elements.
+
+And that's it.
