@@ -107,15 +107,18 @@ databases there and just refer to them by the name if you wish.
     If used in *hashref form*, it deletes only that hash key, possibly leaving
     an empty hash if it was the last member deleted from its parent.
 
-**`get`**
+**`list`**
 
-:   `hashlite $db get tables` prints a list of table names in the database,
+:   `hashlite $db list tables` prints a list of table names in the database,
     one per line, sorted.
 
-    `hashlite $db get keys $table` prints a list of keys in the table,
-    one per line.
+    `hashlite $db list keys $table` prints a list of keys in the table,
+    one per line, in rowid order (which, if I understand SQLite correctly,
+    means the order in which the keys were added to the table).
 
-    `hashlite $db get $table $key` prints the value at the key supplied.
+**`get`**
+
+:   `hashlite $db get $table $key` prints the value at the key supplied.
     If the value is a reference, it will be pretty printed using perl's Data
     Dumper module (`Data::Dumper`).
 
@@ -149,11 +152,10 @@ databases there and just refer to them by the name if you wish.
     mainly for human consumption, (e.g., to quickly check what some program
     actually stored).
 
-**`get all`**
+**`dump`**
 
-:   This is a variant of the get that actually dumps all the records in the
-    entire database (from `hashlist $db get all`), or in one table (if you
-    run `hashlist $db get all $table`), using Data Dumper.
+:   This dumps the entire database (if you run `hashlist $db dump all`), or
+    one table (if you run `hashlist $db dump $table`), using Data Dumper.
 
     Again, this is somewhat useless for scripting, but when you're desperate
     you can pipe one of these commands to a pager and grep for stuff!
