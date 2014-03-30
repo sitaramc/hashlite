@@ -1,6 +1,5 @@
 #!/usr/bin/perl
 # XXX need:
-# * subkeys in grep should themselves be patterns
 # * grep should have options to dump just the key, the key + the field, or the
 #   whole record
 # * how about an option to vi a field?
@@ -246,7 +245,11 @@ sub _get_field {
             warn "unused arguments...", Dumper(\@_);
             last;
         } elsif ( ref($cv) eq 'HASH' ) {
-            $cv = $cv->{$v} || undef;
+            if (defined $cv->{$v} or $v = _psk_expand($cv, $v)) {
+                $cv = $cv->{$v};
+            } else {
+                $cv = undef;
+            }
         } elsif ( ref($cv) eq 'ARRAY' ) {
             $cv = $cv->[$v] || undef;
         } else {
@@ -256,6 +259,16 @@ sub _get_field {
     }
     return $cv;
 }
+sub _psk_expand {
+    # expand a partial subkey ($v) into a full one if there is exactly one
+    # match among the candidate subkeys of the current structure ($cv)
+    my ($cv, $v) = @_;
+    my @matches = grep { /$v/i } sort keys %$cv;
+    die "too many matches for partial key '$v' in " . join(", ", @matches) if @matches > 1;
+    return $matches[0] || '';
+}
+
+# ----------------------------------------------------------------------
 
 sub usage {
     # I don't like POD.  This is not up for discussion.
