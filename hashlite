@@ -1,4 +1,13 @@
 #!/usr/bin/perl
+# XXX need:
+# * subkeys in grep should themselves be patterns
+# * grep should have options to dump just the key, the key + the field, or the
+#   whole record
+# * how about an option to vi a field?
+# * multiplex 't' for encryption, expiry date...
+
+# ----------------------------------------------------------------------
+
 use strict;
 use warnings;
 use 5.10.0;
@@ -7,90 +16,120 @@ $Data::Dumper::Terse    = 1;
 $Data::Dumper::Indent   = 1;
 $Data::Dumper::Sortkeys = 1;
 
+# ----------------------------------------------------------------------
+
 use lib "$ENV{HOME}/._s/tools/HashLite";
 use FindBin;
 use lib $FindBin::RealBin;
 use HashLite;
 
+# ----------------------------------------------------------------------
+
+use Getopt::Long;
+my ( $help, $DB, $table, $mtime, $ctime );
+GetOptions(
+    "help|h|?"      => \$help,     # this help text
+    "db|d=s"        => \$DB,       # database
+    "table|tbl|t:s" => \$table,    # table
+    "mtime|mt|m"    => \$mtime,    # record mtime as subkey
+    "ctime|ct|c"    => \$ctime,    # record ctime as subkey
+) or die "option error; maybe a typo or a missing '--' somewhere?\n";
+
+$DB    ||= $ENV{HL_DB}    || '';
+$table ||= $ENV{HL_TABLE} || '';
+
 usage() unless @ARGV;
-cli_new(@ARGV) if ( $ARGV[0] eq 'new' );
+usage() if $help;                     # exits;
 
-my $DB = shift or die "need DB name";
-# sort of like a default path for databases
-$DB = "$ENV{HOME}/.config/hashlite/$DB" unless -f $DB;
-# XXX should this be in ~/.local/share or something?
-my $db = HashLite->new($DB);
+# ----------------------------------------------------------------------
 
+my $dbh;
 {
     # dispatch table
     #<<<
     my %dt = (
-        'set'       =>  \&cli_set,
-        'get'       =>  \&cli_get,
-        'list'      =>  \&cli_list,
+        'new'       =>  \&cli_new,
+        'tables'    =>  \&cli_tables,
         'dump'      =>  \&cli_dump,
+        'keys'      =>  \&cli_keys,
+        'get'       =>  \&cli_get,
         'grep'      =>  \&cli_grep,
+        'set'       =>  \&cli_set,
     );
     #>>>
 
-    my $cmd = shift or die "need command";
-    die "unknown command '$cmd'" unless exists $dt{$cmd};
+    my $cmd = shift;
 
-    exit $dt{$cmd}->(@ARGV);
+    die "unknown command '$cmd'" unless exists $dt{$cmd};
+    die "need database name"     unless $DB;
+    die "need table name"        unless $table or ( $cmd eq 'tables' or $cmd eq 'dump' );
+
+    $dbh = cli_open($DB) unless $cmd eq 'new';
+
+    exit $dt{$cmd}->($DB, $table, @ARGV);
 }
 
-sub cli_set {
-    # XXX WARNING XXX WARNING XXX WARNING XXX
-    #   1.  this will only work for chains of hashes; you can't update arrays
-    #       using this shell interface.
-    #   2.  IT SILENTLY OVERWRITES RECORDS; THERE IS NO CHECKING OF WHETHER
-    #       THE RECORD IS OF A DIFFERENT TYPE OR NOT!
+# ----------------------------------------------------------------------
 
-    # table key [subkeys] value
-    my $t = shift;
-    my $k = shift;
-    die "table key [subkeys] value" unless @_;
-    my $val = pop @_;
+sub cli_open {
+    my $DB = shift;
 
-    # no subkeys; plain old 'set'
-    unless (@_) {
-        # if you want to set something to an empty string, we treat it as
-        # "delete".  Note that this allows "0" as a valid value to set.
-        $val = undef unless length($val);
-        $db->set( $t, $k, $val );
+    # sort of like a default path for databases
+    $DB = "$ENV{HOME}/.config/hashlite/$DB" unless -f $DB;
+    # XXX should this be in ~/.local/share or something?
+    return HashLite->new($DB);
+}
+
+# ----------------------------------------------------------------------
+
+sub cli_new {
+    my $DB = shift; my $table = shift;
+
+    say STDERR "run this command:" if -t 1;
+    say "echo 'create table $table (k text primary key, t int, v text);' | sqlite3 $DB";
+
+    exit 0;
+}
+
+# ----------------------------------------------------------------------
+
+sub cli_tables {
+    # HashLite handles 'tables' directly
+    my $cv = $dbh->get( 'tables' );
+
+    # print them one/line for scripting convenience
+    map { say } @$cv;
+    return 0 if @$cv;
+    # as well as return shell false if nothing was found
+    return 1;
+}
+
+# ----------------------------------------------------------------------
+
+sub cli_dump {
+    my $DB = shift; my $table = shift;
+
+    # this is the entry point for the 'dump' command.  If $table was already
+    # defined, then we dump only that.  Else we find all the tables and dump
+    # all of them one by one by calling ourselves with the right args
+    if ($table) {
+        my $keys = $dbh->get( 'keys', $table );
+        map { say "key:\t$_"; cli_get( $DB, $table, $_ ) } @$keys;
+        return 0;
+    } else {
+        # if $table is not defined, dump all of them!
+        map { say "table:\t$_"; cli_dump( $DB, $_ ) } @{ $dbh->get('tables') };
         return 0;
     }
-
-    # partial update using subkeys; get the old value, if any
-    my $old = $db->get( $t, $k );
-    # if it wasn't a hashref, well... tough luck; it's one now!
-    $old = {} unless ref($old) eq 'HASH';
-
-    my $e = "\$old -> ";
-    for (@_) {
-        $e .= "{ '$_' } ";
-    }
-    if ( length($val) ) {
-        $e .= " = '$val'";
-    } else {
-        $e = "delete $e";
-    }
-    eval $e;
-    die "$e failed:\n$@" if $@;
-
-    $db->set( $t, $k, $old );
-    return 0;
 }
 
-sub cli_list {
-    # list tables           # one/line table names, sorted
-    # list keys $table      # one/line all keys of $table
+# ----------------------------------------------------------------------
 
-    my $t = shift;
-    my $k = shift;
+sub cli_keys {
+    my $DB = shift; my $table = shift;
 
-    # HashLite handles 'tables', and 'keys $table'
-    my $cv = $db->get( $t, $k );
+    # HashLite handles 'keys $table' directly
+    my $cv = $dbh->get( 'keys', $table );
 
     # print these one/line for scripting convenience
     map { say } @$cv;
@@ -99,14 +138,15 @@ sub cli_list {
     return 1;
 }
 
-sub cli_get {
-    # get $table $key [$subkeys]
+# ----------------------------------------------------------------------
 
-    # table key [subkeys]
-    my $t = shift;
+sub cli_get {
+    my $DB = shift; my $table = shift;
+
+    # key [subkeys]
     my $k = shift;
 
-    my $cv = $db->get( $t, $k );
+    my $cv = $dbh->get( $table, $k );
 
     # "smart print" the value, looking at the sub keys given (if any)
     $cv = _get_field($cv, @_);
@@ -122,69 +162,22 @@ sub cli_get {
     }
 }
 
-sub cli_dump {
-    # dump all
-    # dump $table
-
-    my $t = shift or die "need 'all' or table name";
-
-    if ( $t eq 'all' ) {
-        map { say "table:\t$_"; cli_dump( $_ ) } @{ $db->get('tables') };
-        return 0;
-    }
-    my $keys = $db->get( 'keys', $t );
-    map { say "key:\t$_"; cli_get( $t, $_ ) } @$keys;
-    return 0;
-}
-
-sub usage {
-    print '    Quick help for hashlite:
-
-        hashlite new $db $table
-
-        hashlite $db set $table $key $value
-        hashlite $db set $table $key $subkey1 [...] $value
-            (delete key/subkey if value is an empty string)
-
-        hashlite $db list tables
-        hashlite $db list keys $table
-
-        hashlite $db get $table $key
-        hashlite $db get $table $key $subkey1 [...]
-
-        hashlite $db dump all
-        hashlite $db dump $table
-
-        hashlite $db grep $table $subkey1 [...] $pattern
-
-';
-
-    say "   see http://gitolite.com/hashlite for more\n";
-    exit 1;
-}
-
-sub cli_new {
-    shift;
-    my $db    = shift;
-    my $table = shift or die "need dbname and tablename";
-    say STDERR "run this command:" if -t 1;
-    say "echo 'create table $table (k text primary key, t int, v text);' | sqlite3 $db";
-
-    exit 0;
-}
+# ----------------------------------------------------------------------
 
 sub cli_grep {
-    my $t = shift;
+    my $DB = shift; my $table = shift;
+
     my $patt = pop or die "need pattern";
     my @fields = @_ or die "need field(s)";
-    my @ids = $db->_grep(
-        $t,
+    my @ids = $dbh->_grep(
+        $table,
         sub {
             my ( $k, $v ) = @_;
-            _get_field($v, @fields) =~ /$patt/i;
+            ( _get_field($v, @fields) || '' ) =~ /$patt/i;
         }
     );
     exit 1 unless @ids;
+    # XXX this is where code to show more/less info will go
     while (@ids) {
         my $k = shift @ids;
         my $v = shift @ids;
@@ -192,6 +185,55 @@ sub cli_grep {
     }
     exit 0;
 }
+
+# ----------------------------------------------------------------------
+
+sub cli_set {
+    # XXX WARNING XXX WARNING XXX WARNING XXX
+    #   1.  this will only work for chains of hashes; you can't update arrays
+    #       using this shell interface.
+    #   2.  IT SILENTLY OVERWRITES RECORDS; THERE IS NO CHECKING OF WHETHER
+    #       THE RECORD IS OF A DIFFERENT TYPE OR NOT!
+
+    my $DB = shift; my $table = shift;
+
+    # key [subkey ...] value
+    my $k   = shift or die "syntax: key [subkey ...] = [value]";
+    my $val = pop   or die "syntax: key [subkey ...] = [value]";
+    if ($val eq '=') {
+        $val = undef;
+    } else {
+        ( pop(@_) || '' ) eq '=' or die "syntax: key [subkey ...] = value";
+    }
+
+    # no subkeys; plain old 'set'
+    unless (@_) {
+        $dbh->set( $table, $k, $val );
+        return 0;
+    }
+
+    # partial update using subkeys; get the old value, if any
+    my $old = $dbh->get( $table, $k );
+    # if it wasn't a hashref, well... tough luck; it's one now!
+    $old = {} unless ref($old) eq 'HASH';
+
+    my $e = "\$old -> ";
+    for (@_) {
+        $e .= "{ '$_' } ";
+    }
+    if ( length($val) ) {
+        $e .= " = '$val'";
+    } else {
+        $e = "delete $e";
+    }
+    eval $e;
+    die "$e failed:\n$@" if $@;
+
+    $dbh->set( $table, $k, $old );
+    return 0;
+}
+
+# ----------------------------------------------------------------------
 
 sub _get_field {
     my $cv = shift;
@@ -214,3 +256,50 @@ sub _get_field {
     }
     return $cv;
 }
+
+sub usage {
+    # I don't like POD.  This is not up for discussion.
+
+    say "
+hashlite -- quick commandline database on SQLite3
+";
+
+    @ARGV = ($0);
+    while (<>) {
+        next unless /^\s*GetOptions/ .. /^\s*\)/;
+        next if /^\s*GetOptions/ or /^\s*\)/;
+
+        my $op = '';
+        if (/"(.*?)"/) {
+            $op = "  " . join( ", ", map { s/[=:][sif]$//; /../ ? "--$_" : "-$_" } split /\|/, $1 );
+            print $op;
+        }
+        print( " " x ( 30 - length($op) ) );
+
+        s/.*#/#/;
+        print;
+    }
+
+    say '
+    hashlite -d $db -t $table new       # create db and table
+
+    hashlite -d $db tables              # list tables
+    hashlite -d $db dump                # dump all tables
+
+    hashlite -d $db -t $table keys
+    hashlite -d $db -t $table dump
+
+    hashlite -d $db -t $table grep  $subkey1 [...] $pattern
+
+    hashlite -d $db -t $table get   $key [$subkey ...]
+    hashlite -d $db -t $table set   $key [$subkey ...] = [$value]
+
+Notes:
+  - "set" deletes key/subkey if $value is not supplied
+
+see http://gitolite.com/hashlite for more
+';
+
+    exit 1;
+}
+
