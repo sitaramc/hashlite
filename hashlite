@@ -85,6 +85,8 @@ sub cli_open {
 
 sub cli_new {
     my $DB = shift; my $table = shift;
+    my $default_DB = "$ENV{HOME}/.config/hashlite/$DB";
+    die "do you mean '$default_DB'" if not -f $DB and -f $default_DB;
 
     say STDERR "run this command:" if -t 1;
     say "echo 'create table $table (k text primary key, t int, v text);' | sqlite3 $DB";
