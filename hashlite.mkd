@@ -162,10 +162,18 @@ databases there and just refer to them by the name if you wish.
 
 **`grep`**
 
-:   `hashlite $db grep $table $subkey1 [...] $pattern` looks for keys
-    where the field value found using the subkeys matches the pattern.  For
-    those records, it prints the key and the field value, separated by a tab,
-    one record per line.
+:   `hashlite $db grep $table $pattern` is a blunt instrument.  It looks for
+    the pattern in the key, any subkeys, and values.  If found, it
+    pretty-prints the entire record (not just the field in which the pattern
+    was found), i.e., it does not pay attention to the '--grep-detail' option.
+
+    Semantically, it's not much different from dumping the entire table and
+    grepping for the pattern.
+
+:   `hashlite $db grep $table $subkey1 [...] $pattern` is much more powerful.
+    It looks for keys where the field value found using the subkeys matches
+    the pattern.  For those records, it prints the key and the field value,
+    separated by a tab, one record per line.
 
     You can make it print just the key by adding the option `-gd=key`, or the
     full record by saying `-gd=full`; see the help message you get when you

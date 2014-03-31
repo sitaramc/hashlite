@@ -171,7 +171,7 @@ sub cli_grep {
     my $DB = shift; my $table = shift;
 
     my $patt   = pop or die "need pattern";
-    my @fields = @_  or die "need field(s)";
+    my @fields = @_  or return cli_full_grep($DB, $table, $patt);
     my @ids    = $dbh->_grep(
         $table,
         sub {
@@ -194,6 +194,24 @@ sub cli_grep {
         }
     }
     exit 0;
+}
+sub cli_full_grep {
+    my ($DB, $table, $patt) = @_;
+
+    my @ids    = $dbh->_grep(
+        $table,
+        sub {
+            my ( $k, $v ) = @_;
+            return ( $k =~ /$patt/i or (Dumper $v) =~ /$patt/i );
+        }
+    );
+    return 1 unless @ids;
+    while (@ids) {
+        my $k = shift @ids;
+        my $v = shift @ids;
+        say "$k\n", Dumper $v;
+    }
+    return 0;
 }
 
 # ----------------------------------------------------------------------
@@ -314,16 +332,15 @@ hashlite -- quick commandline database on SQLite3
     hashlite -d $db -t $table keys
     hashlite -d $db -t $table dump
 
+    hashlite -d $db -t $table grep  $pattern
     hashlite -d $db -t $table grep  $subkey1 [...] $pattern
 
     hashlite -d $db -t $table get   $key [$subkey ...]
     hashlite -d $db -t $table set   $key [$subkey ...] = [$value]
 
 Notes:
-  * "set" deletes key/subkey if $value is not supplied
-  * grep prints the key plus the field being searched by default.  You can use
-    the "grep-detail" (or "-gd") option to ask for either "key" to get only
-    the key, or "full" to pretty-print the entire record
+  * "set": deletes key/subkey if $value is not supplied
+  * "grep": please see the documentation for details and examples.
 
 see http://gitolite.com/hashlite for more
 ';
