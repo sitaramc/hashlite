@@ -1,9 +1,8 @@
 #!/usr/bin/perl
 # XXX need:
-# * grep should have options to dump just the key, the key + the field, or the
-#   whole record
 # * how about an option to vi a field?
 # * multiplex 't' for encryption, expiry date...
+# * and mtime/ctime...?
 
 # ----------------------------------------------------------------------
 
@@ -25,20 +24,23 @@ use HashLite;
 # ----------------------------------------------------------------------
 
 use Getopt::Long;
-my ( $help, $DB, $table, $mtime, $ctime );
+my ( $help, $DB, $table, $mtime, $ctime, $grep_detail );
 GetOptions(
-    "help|h|?"      => \$help,     # this help text
-    "db|d=s"        => \$DB,       # database
-    "table|tbl|t:s" => \$table,    # table
-    "mtime|mt|m"    => \$mtime,    # record mtime as subkey
-    "ctime|ct|c"    => \$ctime,    # record ctime as subkey
+    "help|h|?"         => \$help,          # this help text
+    "db|d=s"           => \$DB,            # database
+    "table|tbl|t:s"    => \$table,         # table
+    "mtime|mt|m"       => \$mtime,         # record mtime as subkey
+    "ctime|ct|c"       => \$ctime,         # record ctime as subkey
+    "grep-detail|gd:s" => \$grep_detail    # what to dump on a grep
 ) or die "option error; maybe a typo or a missing '--' somewhere?\n";
 
 $DB    ||= $ENV{HL_DB}    || '';
 $table ||= $ENV{HL_TABLE} || '';
+$grep_detail ||= 'field';
+die "grep-detail value can only be 'field', 'key', or 'full'" if $grep_detail !~ /^(field|key|full)$/;
 
 usage() unless @ARGV;
-usage() if $help;                     # exits;
+usage() if $help;                          # exits;
 
 # ----------------------------------------------------------------------
 
@@ -65,7 +67,7 @@ my $dbh;
 
     $dbh = cli_open($DB) unless $cmd eq 'new';
 
-    exit $dt{$cmd}->($DB, $table, @ARGV);
+    exit $dt{$cmd}->( $DB, $table, @ARGV );
 }
 
 # ----------------------------------------------------------------------
@@ -94,7 +96,7 @@ sub cli_new {
 
 sub cli_tables {
     # HashLite handles 'tables' directly
-    my $cv = $dbh->get( 'tables' );
+    my $cv = $dbh->get('tables');
 
     # print them one/line for scripting convenience
     map { say } @$cv;
@@ -148,7 +150,7 @@ sub cli_get {
     my $cv = $dbh->get( $table, $k );
 
     # "smart print" the value, looking at the sub keys given (if any)
-    $cv = _get_field($cv, @_);
+    $cv = _get_field( $cv, @_ );
 
     # we've run out of arguments so $cv is what we have left now
     if ( ref($cv) ) {
@@ -166,13 +168,13 @@ sub cli_get {
 sub cli_grep {
     my $DB = shift; my $table = shift;
 
-    my $patt = pop or die "need pattern";
-    my @fields = @_ or die "need field(s)";
-    my @ids = $dbh->_grep(
+    my $patt   = pop or die "need pattern";
+    my @fields = @_  or die "need field(s)";
+    my @ids    = $dbh->_grep(
         $table,
         sub {
             my ( $k, $v ) = @_;
-            ( _get_field($v, @fields) || '' ) =~ /$patt/i;
+            ( _get_field( $v, @fields ) || '' ) =~ /$patt/i;
         }
     );
     exit 1 unless @ids;
@@ -180,7 +182,14 @@ sub cli_grep {
     while (@ids) {
         my $k = shift @ids;
         my $v = shift @ids;
-        say $k, "\t", _get_field($v, @fields);
+        if ( $grep_detail eq 'field' ) {
+            say $k, "\t", _get_field( $v, @fields );
+        } elsif ( $grep_detail eq 'key' ) {
+            say $k;
+        } else {
+            # it can only be 'full' now
+            say "$k\n", Dumper $v;
+        }
     }
     exit 0;
 }
@@ -199,7 +208,7 @@ sub cli_set {
     # key [subkey ...] value
     my $k   = shift or die "syntax: key [subkey ...] = [value]";
     my $val = pop   or die "syntax: key [subkey ...] = [value]";
-    if ($val eq '=') {
+    if ( $val eq '=' ) {
         $val = undef;
     } else {
         ( pop(@_) || '' ) eq '=' or die "syntax: key [subkey ...] = value";
@@ -242,10 +251,10 @@ sub _get_field {
 
         # dig into the hash, using each var as a component
         if ( not ref($cv) ) {
-            warn "unused arguments...", Dumper(\@_);
+            warn "unused arguments...", Dumper( \@_ );
             last;
         } elsif ( ref($cv) eq 'HASH' ) {
-            if (defined $cv->{$v} or $v = _psk_expand($cv, $v)) {
+            if ( defined $cv->{$v} or $v = _psk_expand( $cv, $v ) ) {
                 $cv = $cv->{$v};
             } else {
                 $cv = undef;
@@ -259,12 +268,13 @@ sub _get_field {
     }
     return $cv;
 }
+
 sub _psk_expand {
     # expand a partial subkey ($v) into a full one if there is exactly one
     # match among the candidate subkeys of the current structure ($cv)
-    my ($cv, $v) = @_;
+    my ( $cv, $v ) = @_;
     my @matches = grep { /$v/i } sort keys %$cv;
-    die "too many matches for partial key '$v' in " . join(", ", @matches) if @matches > 1;
+    die "too many matches for partial key '$v' in " . join( ", ", @matches ) if @matches > 1;
     return $matches[0] || '';
 }
 
@@ -308,7 +318,10 @@ hashlite -- quick commandline database on SQLite3
     hashlite -d $db -t $table set   $key [$subkey ...] = [$value]
 
 Notes:
-  - "set" deletes key/subkey if $value is not supplied
+  * "set" deletes key/subkey if $value is not supplied
+  * grep prints the key plus the field being searched by default.  You can use
+    the "grep-detail" (or "-gd") option to ask for either "key" to get only
+    the key, or "full" to pretty-print the entire record
 
 see http://gitolite.com/hashlite for more
 ';
