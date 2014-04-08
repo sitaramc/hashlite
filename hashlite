@@ -223,9 +223,13 @@ sub cli_set {
     #   2.  IT SILENTLY OVERWRITES RECORDS; THERE IS NO CHECKING OF WHETHER
     #       THE RECORD IS OF A DIFFERENT TYPE OR NOT!
 
+    # get multi-sets out of the way first
+    return 0 if _multi_set(@_);
+
     my $DB = shift; my $table = shift;
 
-    # key [subkey ...] value
+    # key [subkey ...] = value
+    # key = [value]
     my $k   = shift or die "syntax: key [subkey ...] = [value]";
     my $val = pop   or die "syntax: key [subkey ...] = [value]";
     if ( $val eq '=' ) {
@@ -260,6 +264,28 @@ sub cli_set {
     $dbh->set( $table, $k, $old );
     return 0;
 }
+
+sub _multi_set {
+    # args expected: DB table key subkey [...] = [value] [+ subkey [...] = [value] ...]
+    return 0 unless grep { $_ eq '+' } @_;
+
+    # get the fixed parts
+    my $DB = shift; my $table = shift; my $key = shift;
+
+    my @args = ();
+    for my $a (@_) {
+        if ($a eq '+') {
+            cli_set($DB, $table, $key, @args);
+            @args = ();
+            next;
+        }
+        push @args, $a;
+    }
+    cli_set($DB, $table, $key, @args) if @args;
+
+    return 1;   # success
+}
+
 
 # ----------------------------------------------------------------------
 
@@ -336,7 +362,8 @@ hashlite -- quick commandline database on SQLite3
     hashlite -d $db -t $table grep  $subkey1 [...] $pattern
 
     hashlite -d $db -t $table get   $key [$subkey ...]
-    hashlite -d $db -t $table set   $key [$subkey ...] = [$value]
+    hashlite -d $db -t $table set   $key = [$value]
+    hashlite -d $db -t $table set   $key $subkey [...] = [$value] [+ $subkey [...] = [$value] ...]
 
 Notes:
   * "set": deletes key/subkey if $value is not supplied
