@@ -14,7 +14,7 @@ use lib "$ENV{HOME}/bin";
 use Tsh;
 
 # plan -- change this when #tests changes
-    try 'plan 99';
+    try 'plan 42';
 
 # settings/defines
     my $db = "/tmp/hltest.$$";
