@@ -16,7 +16,6 @@ $Data::Dumper::Sortkeys = 1;
 
 # ----------------------------------------------------------------------
 
-use lib "$ENV{HOME}/._s/tools/HashLite";
 use FindBin;
 use lib $FindBin::RealBin;
 use HashLite;

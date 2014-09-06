@@ -10,7 +10,7 @@ $Data::Dumper::Indent = 1;
 $Data::Dumper::Sortkeys = 1;
 sub dd { say STDERR Dumper @_; }
 
-use lib "$ENV{HOME}/._s/tools/tsh";
+use lib "$ENV{HOME}/bin";
 use Tsh;
 
 # plan -- change this when #tests changes
