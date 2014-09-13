@@ -62,12 +62,12 @@ databases there and just refer to them by the name if you wish.
 
 **`set`**
 
-:   `hashlite $db set $table $key $value` (**scalar form**) sets key to
+:   `hashlite $db set $table $key = $value` (**scalar form**) sets key to
     value in the given table.  This is a plain scalar.  If something
     previously existed in that key, it will be silently overwritten, even if
     it was a structure.
 
-    `hashlite $db set $table $key $subkey1 [...] $value` (**hashref form**)
+    `hashlite $db set $table $key $subkey1 [...] = $value` (**hashref form**)
     sets a part of a data structure.  Please **read carefully**!
 
     Loosely speaking, it treats all the intermediate values as hash keys, and
@@ -100,8 +100,7 @@ databases there and just refer to them by the name if you wish.
 **`set` in delete mode**
 
 :   A special case of set is used to delete entire keys or subkeys within a
-    key.  Just use an empty string as the value (literally  a `''` in the
-    command line).
+    key.  Just leave out the value (i.e., end the command with the '=').
 
     If used in *scalar form* (see above), it deletes the key from the table.
     If used in *hashref form*, it deletes only that hash key, possibly leaving
