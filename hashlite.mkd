@@ -41,7 +41,7 @@ suitable, everything else is typed literally.
 
 ### creating the database and the table
 
-Just to help you along, typing `hashlite new $db $table` will print the
+Just to help you along, typing `hashlite new -d $db -t $table` will print the
 command you need to run to create the database (if needed) and the table
 within it.  Just copy-paste that into your shell.
 
