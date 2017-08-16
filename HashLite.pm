@@ -19,7 +19,7 @@ $Data::Dumper::Indent   = 1;
 $Data::Dumper::Sortkeys = 1;
 
 use DBI;
-use Storable qw(freeze thaw);
+use Storable qw(nfreeze thaw);
 
 sub new {
     my $class = shift;
@@ -45,7 +45,7 @@ sub set {
     }
 
     my $t = ref($v) || 0;
-    $v = freeze($v) if $t;
+    $v = nfreeze($v) if $t;
 
     # XXX any encryption must happen here
 
